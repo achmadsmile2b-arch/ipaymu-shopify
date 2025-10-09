@@ -6,20 +6,36 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Konfigurasi Utama
-const SHOPIFY_STORE = "arkebstore.myshopify.com"; // ubah ke domain toko Shopify kamu
-const SHOPIFY_TOKEN = "YOUR_ADMIN_API_ACCESS_TOKEN"; // ambil dari private app Shopify
+// ================================================
+// 🔧 KONFIGURASI UTAMA
+// ================================================
+const MODE = "sandbox"; // 🔁 ganti ke "live" jika akun iPaymu sudah diverifikasi
+
+// Shopify
+const SHOPIFY_STORE = "arkebstore.myshopify.com"; // ubah ke domain toko kamu
+const SHOPIFY_TOKEN = "YOUR_ADMIN_API_ACCESS_TOKEN"; // dari private app Shopify
+
+// iPaymu
 const IPAYMU_VA = "VA_KAMU"; // VA akun iPaymu kamu
 const IPAYMU_APIKEY = "APIKEY_KAMU"; // API Key iPaymu kamu
-const IPAYMU_URL = "https://sandbox.ipaymu.com/api/v2/payment"; // pakai sandbox sampai verifikasi
-const BASE_URL = "https://ipaymu-shopify.onrender.com"; // domain server kamu di Render
+const IPAYMU_URL =
+  MODE === "live"
+    ? "https://my.ipaymu.com/api/v2/payment"
+    : "https://sandbox.ipaymu.com/api/v2/payment";
 
-// ✅ Cek server aktif
+// URL Server Render kamu
+const BASE_URL = "https://ipaymu-shopify.onrender.com";
+
+// ================================================
+// 🔍 CEK SERVER AKTIF
+// ================================================
 app.get("/", (req, res) => {
-  res.send("✅ iPaymu Render server aktif & siap menerima request!");
+  res.send(`✅ Server aktif (${MODE.toUpperCase()} MODE) dan siap menerima request!`);
 });
 
-// ✅ Route untuk tombol Bayar Sekarang di email Shopify
+// ================================================
+// 💳 ROUTE UNTUK PEMBAYARAN DARI SHOPIFY
+// ================================================
 app.get("/pay", async (req, res) => {
   const orderId = req.query.order_id;
   if (!orderId) return res.status(400).send("❌ order_id tidak ditemukan");
@@ -42,9 +58,9 @@ app.get("/pay", async (req, res) => {
     const quantities = order.line_items.map((i) => i.quantity);
     const prices = order.line_items.map((i) => parseFloat(i.price));
 
-    console.log(`🧾 Order ${order.id} total: ${totalPrice}`);
+    console.log(`🧾 Membuat link pembayaran iPaymu untuk Order #${orderId}`);
 
-    // 2️⃣ Buat data body untuk API iPaymu
+    // 2️⃣ Siapkan body request iPaymu
     const body = {
       product: productNames,
       qty: quantities,
@@ -55,7 +71,7 @@ app.get("/pay", async (req, res) => {
       referenceId: orderId,
     };
 
-    // 3️⃣ Generate Signature
+    // 3️⃣ Generate signature
     const jsonBody = JSON.stringify(body);
     const stringToSign = `POST:${IPAYMU_VA}:${crypto
       .createHash("sha256")
@@ -66,7 +82,7 @@ app.get("/pay", async (req, res) => {
       .update(stringToSign)
       .digest("hex");
 
-    // 4️⃣ Kirim request ke iPaymu
+    // 4️⃣ Kirim ke iPaymu
     const response = await axios.post(IPAYMU_URL, body, {
       headers: {
         "Content-Type": "application/json",
@@ -76,6 +92,7 @@ app.get("/pay", async (req, res) => {
       },
     });
 
+    // 5️⃣ Redirect pelanggan ke halaman pembayaran iPaymu
     if (response.data?.Data?.Url) {
       console.log("✅ Redirect ke:", response.data.Data.Url);
       return res.redirect(response.data.Data.Url);
@@ -89,24 +106,26 @@ app.get("/pay", async (req, res) => {
   }
 });
 
-// ✅ Callback (notifikasi otomatis dari iPaymu)
+// ================================================
+// 📩 CALLBACK DARI IPAYMU (PEMBAYARAN OTOMATIS)
+// ================================================
 app.post("/callback", async (req, res) => {
-  console.log("📩 Callback dari iPaymu:", req.body);
+  console.log("📩 Callback diterima dari iPaymu:", req.body);
 
   try {
-    const { reference_id, status } = req.body;
+    const { reference_id, status, amount } = req.body;
 
     if (status === "berhasil") {
       console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
 
-      // 1️⃣ Update status order Shopify ke "Paid"
+      // 1️⃣ Update status order Shopify jadi "Paid"
       await axios.post(
         `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${reference_id}/transactions.json`,
         {
           transaction: {
             kind: "sale",
             status: "success",
-            amount: req.body.amount || "0",
+            amount: amount || "0",
           },
         },
         {
@@ -128,6 +147,8 @@ app.post("/callback", async (req, res) => {
   }
 });
 
-// ✅ Jalankan server
+// ================================================
+// 🚀 JALANKAN SERVER
+// ================================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server berjalan di port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server berjalan di port ${PORT} (${MODE.toUpperCase()} MODE)`));
