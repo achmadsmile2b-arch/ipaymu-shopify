@@ -4,8 +4,7 @@ import CryptoJS from 'crypto-js'; // npm install node-fetch --save
 // adjust with your iPaymu api key & va 
 var apikey          = "95489E50-3167-4B04-AA4D-D01732200BB6";
 var va              = "1179003819651945";
-//var url             = 'https://sandbox.ipaymu.com/api/v2/payment/direct'; // development mode
- var url             = 'https://my.ipaymu.com/api/v2/payment/direct'; // for production mode
+var url             = 'https://my.ipaymu.com/api/v2/payment/direct'; // for production mode
 
 var body            = {
     "name":"Putu",
