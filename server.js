@@ -7,92 +7,93 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ==============================
-// ⚙️ KONFIGURASI DARI ENVIRONMENT
+// ⚙️ KONFIGURASI ENVIRONMENT
 // ==============================
 const MODE = process.env.IPAYMU_MODE || "sandbox"; // sandbox / live
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
-
 const IPAYMU_VA = process.env.IPAYMU_VA;
 const IPAYMU_KEY = process.env.IPAYMU_KEY;
+const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
+
 const IPAYMU_BASE_URL =
   MODE.toLowerCase() === "live"
     ? "https://my.ipaymu.com/api/v2"
     : "https://sandbox.ipaymu.com/api/v2";
 
-const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
-
 console.log(`🚀 Server running in ${MODE.toUpperCase()} MODE`);
 console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 
 // ==============================
-// 🧩 ROUTE TEST UTAMA
+// 🧩 ROUTE UTAMA TEST
 // ==============================
 app.get("/", (req, res) => {
   res.send(`✅ iPaymu-Server aktif di mode: ${MODE.toUpperCase()}`);
 });
+
 // ==============================
-// 💳 ROUTE UNTUK TOMBOL BAYAR SHOPIFY
+// 💳 ROUTE PEMBAYARAN SHOPIFY → IPAYMU
 // ==============================
 app.all("/pay", async (req, res) => {
+  console.log("🔥 Request masuk ke /pay:", req.method, req.query || req.body);
   try {
-    // ambil data baik dari query atau body
     const data = req.method === "GET" ? req.query : req.body;
     const { order_id, buyerName, buyerEmail, buyerPhone, amount } = data;
 
     if (!order_id || !amount) {
       return res.status(400).send("❌ order_id atau amount tidak ditemukan");
-      // ✅ Jika order_id & amount valid, lanjut proses ke iPaymu
+    }
+
     console.log("📦 order_id:", order_id, "💰 amount:", amount);
+
+    const cleanAmount = Math.round(parseFloat(String(amount).replace(",", ".")));
 
     const body = {
       product: [`Pembayaran Order #${order_id}`],
       qty: [1],
-      price: [Math.round(parseFloat(String(amount).replace(",", ".")))],
+      price: [cleanAmount],
       buyerName: buyerName || "Pelanggan",
       buyerEmail: buyerEmail || "example@email.com",
       buyerPhone: buyerPhone || "08123456789",
       returnUrl: `https://${SHOPIFY_STORE}/`,
       cancelUrl: `https://${SHOPIFY_STORE}/cart`,
+      notifyUrl: `${BASE_URL}/callback`,
     };
 
-    // 🔐 Header dan signature
     const jsonBody = JSON.stringify(body);
     const timestamp = new Date().toISOString();
+
+    // 🔐 Signature iPaymu
     const signature = crypto
-      .createHmac("sha256", IPAYMU_APIKEY)
+      .createHmac("sha256", IPAYMU_KEY)
       .update(IPAYMU_VA + jsonBody + timestamp)
       .digest("hex");
 
-    const response = await axios.post(
-      `${IPAYMU_BASE_URL}/payment`,
-      body,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          va: IPAYMU_VA,
-          signature,
-          timestamp,
-        },
-      }
-    );
+    const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
+      headers: {
+        "Content-Type": "application/json",
+        va: IPAYMU_VA,
+        signature,
+        timestamp,
+      },
+    });
 
-    // 🔁 Redirect ke URL pembayaran iPaymu
     const redirectUrl = response.data?.Data?.Url;
     if (redirectUrl) {
+      console.log("✅ Redirect ke:", redirectUrl);
       return res.redirect(redirectUrl);
     } else {
+      console.log("⚠️ Response iPaymu:", response.data);
       return res.status(500).send("Gagal membuat link pembayaran iPaymu");
     }
-    }
   } catch (error) {
-    console.error("❌ ERROR:", error.message);
+    console.error("❌ ERROR /pay:", error.response?.data || error.message);
     return res.status(500).send("Terjadi kesalahan di server iPaymu");
   }
 });
 
 // ==============================
-// 🧾 BUAT LINK PEMBAYARAN
+// 🧾 BUAT LINK PEMBAYARAN MANUAL (OPSIONAL)
 // ==============================
 app.post("/create-payment", async (req, res) => {
   try {
@@ -108,11 +109,13 @@ app.post("/create-payment", async (req, res) => {
       callbackUrl,
     } = req.body;
 
+    const cleanAmount = Math.round(parseFloat(String(amount).replace(",", ".")));
+
     const body = {
       buyerName,
       buyerEmail,
       buyerPhone,
-      amount,
+      amount: cleanAmount,
       orderId,
       product,
       returnUrl,
@@ -134,7 +137,7 @@ app.post("/create-payment", async (req, res) => {
       headers: {
         "Content-Type": "application/json",
         va: IPAYMU_VA,
-        signature: signature,
+        signature,
         timestamp: new Date().toISOString(),
       },
     });
@@ -151,12 +154,11 @@ app.post("/create-payment", async (req, res) => {
 });
 
 // ==============================
-// 🔁 CALLBACK DARI IPAYMU
+// 🔁 CALLBACK DARI IPAYMU → SHOPIFY
 // ==============================
 app.post("/callback", async (req, res) => {
   try {
     const { reference_id, status, amount } = req.body;
-
     console.log("📩 Callback diterima dari iPaymu:", req.body);
 
     if (status === "berhasil" || status === "success") {
@@ -182,7 +184,7 @@ app.post("/callback", async (req, res) => {
 
       console.log(`🟢 Order ${reference_id} di Shopify diperbarui jadi "Paid"`);
     } else {
-      console.log(`⚠️ Pembayaran ${reference_id} belum berhasil`);
+      console.log(`⚠ Pembayaran ${reference_id} belum berhasil`);
     }
 
     res.send("Callback diterima ✅");
@@ -200,9 +202,9 @@ setInterval(async () => {
     await axios.get(BASE_URL);
     console.log("☕ Keep-alive ping sent to Render");
   } catch (err) {
-    console.log("⚠️ Keep-alive ping failed:", err.message);
+    console.log("⚠ Keep-alive ping failed:", err.message);
   }
-}, 4 * 60 * 1000); // setiap 4 menit
+}, 4 * 60 * 1000);
 
 // ==============================
 // 🚀 JALANKAN SERVER
