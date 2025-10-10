@@ -17,7 +17,7 @@ const IPAYMU_KEY = process.env.IPAYMU_KEY;
 const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
 
 const IPAYMU_BASE_URL =
-  MODE.toLowerCase() === "live"
+  MODE.toLowerCase() === "SANDBOX"
     ? "https://my.ipaymu.com/api/v2"
     : "https://sandbox.ipaymu.com/api/v2";
 
