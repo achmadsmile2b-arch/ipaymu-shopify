@@ -42,7 +42,8 @@ app.all("/pay", async (req, res) => {
 
     if (!order_id || !amount) {
       return res.status(400).send("❌ order_id atau amount tidak ditemukan");
-    }
+      // ✅ Jika order_id & amount valid, lanjut proses ke iPaymu
+    console.log("📦 order_id:", order_id, "💰 amount:", amount);
 
     const body = {
       product: [`Pembayaran Order #${order_id}`],
@@ -53,39 +54,40 @@ app.all("/pay", async (req, res) => {
       buyerPhone: buyerPhone || "08123456789",
       returnUrl: `https://${SHOPIFY_STORE}/`,
       cancelUrl: `https://${SHOPIFY_STORE}/cart`,
-      notifyUrl: `${BASE_URL}/callback`,
-      referenceId: order_id,
     };
 
+    // 🔐 Header dan signature
     const jsonBody = JSON.stringify(body);
-    const stringToSign = `POST:${IPAYMU_VA}:${crypto
-      .createHash("sha256")
-      .update(jsonBody)
-      .digest("hex")}:${IPAYMU_KEY}`;
+    const timestamp = new Date().toISOString();
     const signature = crypto
-      .createHmac("sha256", IPAYMU_KEY)
-      .update(stringToSign)
+      .createHmac("sha256", IPAYMU_APIKEY)
+      .update(IPAYMU_VA + jsonBody + timestamp)
       .digest("hex");
 
-    const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
-      headers: {
-        "Content-Type": "application/json",
-        va: IPAYMU_VA,
-        signature: signature,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    const response = await axios.post(
+      `${IPAYMU_BASE_URL}/payment`,
+      body,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          va: IPAYMU_VA,
+          signature,
+          timestamp,
+        },
+      }
+    );
 
-    if (response.data?.Data?.Url) {
-      console.log(`✅ Redirect ke: ${response.data.Data.Url}`);
-      return res.redirect(response.data.Data.Url);
+    // 🔁 Redirect ke URL pembayaran iPaymu
+    const redirectUrl = response.data?.Data?.Url;
+    if (redirectUrl) {
+      return res.redirect(redirectUrl);
     } else {
-      console.error("⚠️ Gagal membuat link:", response.data);
-      res.status(500).send("Gagal membuat link pembayaran iPaymu");
+      return res.status(500).send("Gagal membuat link pembayaran iPaymu");
     }
-  } catch (err) {
-    console.error("❌ Error /pay:", err.response?.data || err.message);
-    res.status(500).send("Terjadi kesalahan pada server /pay");
+
+  } catch (error) {
+    console.error("❌ ERROR:", error.message);
+    return res.status(500).send("Terjadi kesalahan di server iPaymu");
   }
 });
 
