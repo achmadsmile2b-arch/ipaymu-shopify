@@ -31,6 +31,61 @@ console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 app.get("/", (req, res) => {
   res.send(`✅ iPaymu-Server aktif di mode: ${MODE.toUpperCase()}`);
 });
+// ==============================
+// 💳 ROUTE UNTUK TOMBOL BAYAR SHOPIFY
+// ==============================
+app.get("/pay", async (req, res) => {
+  try {
+    const { order_id, buyerName, buyerEmail, buyerPhone, amount } = req.query;
+
+    if (!order_id || !amount) {
+      return res.status(400).send("❌ order_id atau amount tidak ditemukan");
+    }
+
+    const body = {
+      product: [`Pembayaran Order #${order_id}`],
+      qty: [1],
+      price: [parseFloat(amount)],
+      buyerName: buyerName || "Pelanggan",
+      buyerEmail: buyerEmail || "example@email.com",
+      buyerPhone: buyerPhone || "08123456789",
+      returnUrl: `https://${SHOPIFY_STORE}/`,
+      cancelUrl: `https://${SHOPIFY_STORE}/cart`,
+      notifyUrl: `${BASE_URL}/callback`,
+      referenceId: order_id,
+    };
+
+    const jsonBody = JSON.stringify(body);
+    const stringToSign = `POST:${IPAYMU_VA}:${crypto
+      .createHash("sha256")
+      .update(jsonBody)
+      .digest("hex")}:${IPAYMU_KEY}`;
+    const signature = crypto
+      .createHmac("sha256", IPAYMU_KEY)
+      .update(stringToSign)
+      .digest("hex");
+
+    const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
+      headers: {
+        "Content-Type": "application/json",
+        va: IPAYMU_VA,
+        signature: signature,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    if (response.data?.Data?.Url) {
+      console.log(`✅ Redirect ke: ${response.data.Data.Url}`);
+      return res.redirect(response.data.Data.Url);
+    } else {
+      console.error("⚠️ Gagal membuat link:", response.data);
+      res.status(500).send("Gagal membuat link pembayaran iPaymu");
+    }
+  } catch (err) {
+    console.error("❌ Error /pay:", err.response?.data || err.message);
+    res.status(500).send("Terjadi kesalahan pada server /pay");
+  }
+});
 
 // ==============================
 // 🧾 BUAT LINK PEMBAYARAN
