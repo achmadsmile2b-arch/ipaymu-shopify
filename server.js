@@ -48,7 +48,7 @@ app.all("/pay", async (req, res) => {
     const body = {
       product: [`Pembayaran Order #${order_id}`],
       qty: [1],
-      price: [parseFloat(amount)],
+      price: [Math.round(parseFloat(String(amount).replace(",", ".")))],
       buyerName: buyerName || "Pelanggan",
       buyerEmail: buyerEmail || "example@email.com",
       buyerPhone: buyerPhone || "08123456789",
