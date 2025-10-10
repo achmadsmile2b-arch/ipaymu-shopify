@@ -34,9 +34,11 @@ app.get("/", (req, res) => {
 // ==============================
 // 💳 ROUTE UNTUK TOMBOL BAYAR SHOPIFY
 // ==============================
-app.get("/pay", async (req, res) => {
+app.all("/pay", async (req, res) => {
   try {
-    const { order_id, buyerName, buyerEmail, buyerPhone, amount } = req.query;
+    // ambil data baik dari query atau body
+    const data = req.method === "GET" ? req.query : req.body;
+    const { order_id, buyerName, buyerEmail, buyerPhone, amount } = data;
 
     if (!order_id || !amount) {
       return res.status(400).send("❌ order_id atau amount tidak ditemukan");
