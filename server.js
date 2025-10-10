@@ -18,8 +18,8 @@ const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
 
 const IPAYMU_BASE_URL =
   MODE.toLowerCase() === "SANDBOX"
-    ? "https://my.ipaymu.com/api/v2"
-    : "https://sandbox.ipaymu.com/api/v2";
+    ? "https://sandbox.ipaymu.com/api/v2"
+    : "https://my.ipaymu.com/api/v2";
 
 console.log(`🚀 Server running in ${MODE.toUpperCase()} MODE`);
 console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
