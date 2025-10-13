@@ -63,12 +63,13 @@ app.all("/pay", async (req, res) => {
     const jsonBody = JSON.stringify(body);
     const timestamp = new Date().toISOString();
 
-    // 🔐 Signature iPaymu
-    const signature = crypto
-      .createHmac("sha256", IPAYMU_KEY)
-      .update(IPAYMU_VA + jsonBody + timestamp)
-      .digest("hex");
-
+    // 🔐 Signature iPaymu (versi baru)
+const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
+const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
+const signature = crypto
+  .createHmac("sha256", IPAYMU_KEY)
+  .update(stringToSign)
+  .digest("hex");
     const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
       headers: {
         "Content-Type": "application/json",
