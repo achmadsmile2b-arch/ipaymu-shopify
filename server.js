@@ -10,7 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 // ================================
 // ⚙️ KONFIGURASI ENVIRONMENT
 // ================================
-const MODE = process.env.IPAYMU_MODE || "live"; // sandbox / live
+const MODE = process.env.IPAYMU_MODE || "live"; // live / sandbox
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
 const IPAYMU_VA = process.env.IPAYMU_VA;
@@ -18,7 +18,7 @@ const IPAYMU_KEY = process.env.IPAYMU_KEY;
 const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
 
 // ================================
-// 🌍 IPAYMU BASE URL
+// 🌐 IPAYMU BASE URL
 // ================================
 const IPAYMU_BASE_URL =
   MODE.toLowerCase() === "sandbox"
@@ -35,6 +35,7 @@ const allowedOrigins = [
   `https://${SHOPIFY_STORE}`,
   "https://ipaymu-shopify.onrender.com",
 ];
+
 app.use(
   cors({
     origin: allowedOrigins,
@@ -44,7 +45,7 @@ app.use(
 );
 
 // ================================
-// 🧩 ROUTE TEST
+// ✅ ROUTE TEST
 // ================================
 app.get("/", (req, res) => {
   res.send(`✅ iPaymu-Server aktif di mode: ${MODE.toUpperCase()}`);
@@ -64,7 +65,6 @@ app.all("/pay", async (req, res) => {
     }
 
     const cleanAmount = Math.round(parseFloat(String(amount).replace(",", ".")));
-    console.log("📦 order_id:", order_id, "💰 amount:", cleanAmount);
 
     const body = {
       product: [`Pembayaran Order #${order_id}`],
@@ -81,25 +81,27 @@ app.all("/pay", async (req, res) => {
     const jsonBody = JSON.stringify(body);
 
     // ================================
-    // 🔐 SIGNATURE IPAYMU (VERSI BARU)
+    // 🔐 SIGNATURE UNTUK MODE LIVE
     // ================================
-    // 🔐 Signature iPaymu LIVE
-const jsonBody = JSON.stringify(body);
-const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
-const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
-const signature = crypto
-  .createHmac("sha256", IPAYMU_KEY)
-  .update(stringToSign)
-  .digest("hex");
+    const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
+    const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
+    const signature = crypto
+      .createHmac("sha256", IPAYMU_KEY)
+      .update(stringToSign)
+      .digest("hex");
 
-const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
-  headers: {
-    "Content-Type": "application/json",
-    va: IPAYMU_VA,
-    signature,
-    timestamp: new Date().toISOString(),
-  },
-});
+    const headers = {
+      "Content-Type": "application/json",
+      va: IPAYMU_VA,
+      signature,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log("📦 Signature:", signature);
+    console.log("📡 Kirim ke:", `${IPAYMU_BASE_URL}/payment`);
+
+    const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
+      headers,
     });
 
     const redirectUrl = response.data?.Data?.Url;
@@ -124,33 +126,12 @@ app.post("/callback", async (req, res) => {
     const { reference_id, status, amount } = req.body;
     console.log("📩 Callback diterima dari iPaymu:", req.body);
 
-    if (status === "berhasil" || status === "success") {
+    if (status === "berhasil" || status === "success" || status === "settled") {
       console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
 
-      // Ambil order Shopify berdasarkan nominal
-      const shopifyOrdersUrl = `https://${SHOPIFY_STORE}/admin/api/2024-04/orders.json?status=any&limit=50`;
-      const { data: shopifyData } = await axios.get(shopifyOrdersUrl, {
-        headers: {
-          "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-          "Content-Type": "application/json",
-        },
-      });
-
-      const targetOrder = shopifyData.orders.find((o) => {
-  const shopifyTotal = Math.round(parseFloat(o.total_price));
-  const callbackTotal = Math.round(parseFloat(amount));
-  return shopifyTotal === callbackTotal;
-});
-      if (!targetOrder) {
-        console.log("⚠ Tidak menemukan order Shopify dengan nominal:", amount);
-        return res
-          .status(200)
-          .send("Callback diterima tapi order tidak ditemukan");
-      }
-
-      // Update status order Shopify jadi Paid
+      // Update status order di Shopify
       await axios.post(
-        `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${targetOrder.id}/transactions.json`,
+        `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${reference_id}/transactions.json`,
         {
           transaction: {
             kind: "sale",
@@ -166,7 +147,7 @@ app.post("/callback", async (req, res) => {
         }
       );
 
-      console.log(`🟢 Order ${targetOrder.id} di Shopify diperbarui jadi "Paid"`);
+      console.log(`🟢 Order ${reference_id} di Shopify diperbarui jadi "Paid"`);
     } else {
       console.log(`⚠ Pembayaran ${reference_id} belum berhasil`);
     }
