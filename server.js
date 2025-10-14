@@ -133,34 +133,53 @@ app.post("/callback", async (req, res) => {
       console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
 
       // Update status order di Shopify jadi Paid
-      await axios.post(
-        `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${reference_id}/transactions.json`,
-        {
-          transaction: {
-            kind: "sale",
-            status: "success",
-            amount: amount || "0",
-          },
-        },
-        {
-          headers: {
-            "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      // ==========================
+// ✅ Update status order di Shopify (fix 400 error)
+// ==========================
+try {
+  console.log("🔎 Mencari order Shopify berdasarkan amount:", amount);
 
-      console.log(`🟢 Order ${reference_id} di Shopify diperbarui jadi "Paid"`);
-    } else {
-      console.log(`⚠ Pembayaran ${reference_id} belum berhasil`);
-    }
+  // Ambil semua order terbaru dari Shopify
+  const shopifyOrdersUrl = `https://${SHOPIFY_STORE}/admin/api/2024-04/orders.json?status=any&limit=50`;
+  const { data: shopifyData } = await axios.get(shopifyOrdersUrl, {
+    headers: {
+      "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+      "Content-Type": "application/json",
+    },
+  });
 
-    res.send("Callback diterima ✅");
-  } catch (error) {
-    console.error("❌ Gagal memproses callback:", error.message);
-    res.status(500).send("Error memproses callback");
+  // Cari order yang punya total_price sama dengan nominal callback
+  const targetOrder = shopifyData.orders.find(
+    (o) => parseInt(o.total_price) === parseInt(amount)
+  );
+
+  if (!targetOrder) {
+    console.log("⚠ Tidak menemukan order Shopify dengan nominal:", amount);
+    return res.status(200).send("Callback diterima tapi order tidak ditemukan");
   }
-});
+
+  // Update order jadi 'Paid'
+  await axios.post(
+    `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${targetOrder.id}/transactions.json`,
+    {
+      transaction: {
+        kind: "sale",
+        status: "success",
+        amount: amount || "0",
+      },
+    },
+    {
+      headers: {
+        "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  console.log(`🟢 Order ${targetOrder.id} di Shopify diperbarui jadi "Paid"`);
+} catch (err) {
+  console.error("❌ Gagal update order Shopify:", err.response?.data || err.message);
+}
 
 // ==============================
 // ☕ KEEP-ALIVE UNTUK RENDER
