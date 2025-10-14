@@ -10,7 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 // ================================
 // ⚙️ KONFIGURASI ENVIRONMENT
 // ================================
-const MODE = process.env.IPAYMU_MODE || "sandbox"; // sandbox / live
+const MODE = process.env.IPAYMU_MODE || "live"; // sandbox / live
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
 const IPAYMU_VA = process.env.IPAYMU_VA;
@@ -21,7 +21,7 @@ const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
 // 🌍 IPAYMU BASE URL
 // ================================
 const IPAYMU_BASE_URL =
-  MODE.toLowerCase() === "sandbox"
+  MODE.toLowerCase() === "live"
     ? "https://sandbox.ipaymu.com/api/v2"
     : "https://my.ipaymu.com/api/v2";
 
@@ -84,11 +84,11 @@ app.all("/pay", async (req, res) => {
     // 🔐 SIGNATURE IPAYMU (VERSI BARU)
     // ================================
     const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
-    const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
-    const signature = crypto
-      .createHmac("sha256", IPAYMU_KEY)
-      .update(stringToSign)
-      .digest("hex");
+const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
+const signature = crypto
+  .createHmac("sha256", IPAYMU_KEY)
+  .update(stringToSign)
+  .digest("hex");
 
     const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
       headers: {
