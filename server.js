@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ================================
-// 🔧 KONFIGURASI ENVIRONMENT
+// ⚙️ KONFIGURASI ENVIRONMENT
 // ================================
 const MODE = process.env.IPAYMU_MODE || "sandbox"; // sandbox / live
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
@@ -29,7 +29,7 @@ console.log(`🚀 Server running in ${MODE.toUpperCase()} MODE`);
 console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 
 // ================================
-// 🌐 CORS ALLOWED DOMAINS
+// 🌐 CORS (IZINKAN AKSES DARI SHOPIFY & RENDER)
 // ================================
 const allowedOrigins = [
   `https://${SHOPIFY_STORE}`,
@@ -44,7 +44,7 @@ app.use(
 );
 
 // ================================
-// 🧩 ROUTE UTAMA TEST
+// 🧩 ROUTE TEST
 // ================================
 app.get("/", (req, res) => {
   res.send(`✅ iPaymu-Server aktif di mode: ${MODE.toUpperCase()}`);
@@ -79,12 +79,15 @@ app.all("/pay", async (req, res) => {
     };
 
     const jsonBody = JSON.stringify(body);
-    const timestamp = new Date().toISOString();
 
-    // 🔐 Signature iPaymu (format baru sesuai dokumentasi)
+    // ================================
+    // 🔐 SIGNATURE IPAYMU (VERSI BARU)
+    // ================================
+    const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
+    const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
     const signature = crypto
       .createHmac("sha256", IPAYMU_KEY)
-      .update(IPAYMU_VA + jsonBody + timestamp)
+      .update(stringToSign)
       .digest("hex");
 
     const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
@@ -92,7 +95,7 @@ app.all("/pay", async (req, res) => {
         "Content-Type": "application/json",
         va: IPAYMU_VA,
         signature,
-        timestamp,
+        timestamp: new Date().toISOString(),
       },
     });
 
@@ -121,7 +124,7 @@ app.post("/callback", async (req, res) => {
     if (status === "berhasil" || status === "success") {
       console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
 
-      // Cari order Shopify berdasarkan nominal
+      // Ambil order Shopify berdasarkan nominal
       const shopifyOrdersUrl = `https://${SHOPIFY_STORE}/admin/api/2024-04/orders.json?status=any&limit=50`;
       const { data: shopifyData } = await axios.get(shopifyOrdersUrl, {
         headers: {
