@@ -83,20 +83,23 @@ app.all("/pay", async (req, res) => {
     // ================================
     // 🔐 SIGNATURE IPAYMU (VERSI BARU)
     // ================================
-    const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
+    // 🔐 Signature iPaymu LIVE
+const jsonBody = JSON.stringify(body);
+const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
 const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
 const signature = crypto
   .createHmac("sha256", IPAYMU_KEY)
   .update(stringToSign)
   .digest("hex");
 
-    const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
-      headers: {
-        "Content-Type": "application/json",
-        va: IPAYMU_VA,
-        signature,
-        timestamp: new Date().toISOString(),
-      },
+const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
+  headers: {
+    "Content-Type": "application/json",
+    va: IPAYMU_VA,
+    signature,
+    timestamp: new Date().toISOString(),
+  },
+});
     });
 
     const redirectUrl = response.data?.Data?.Url;
