@@ -133,10 +133,11 @@ app.post("/callback", async (req, res) => {
         },
       });
 
-      const targetOrder = shopifyData.orders.find(
-        (o) => parseInt(o.total_price) === parseInt(amount)
-      );
-
+      const targetOrder = shopifyData.orders.find((o) => {
+  const shopifyTotal = Math.round(parseFloat(o.total_price));
+  const callbackTotal = Math.round(parseFloat(amount));
+  return shopifyTotal === callbackTotal;
+});
       if (!targetOrder) {
         console.log("⚠ Tidak menemukan order Shopify dengan nominal:", amount);
         return res
