@@ -1,42 +1,15 @@
-// ==============================
-// 🌐 IMPORT MODULE
-// ==============================
 import express from "express";
 import axios from "axios";
 import crypto from "crypto";
 import cors from "cors";
 
 const app = express();
-
-// ==============================
-// ⚙️ KONFIGURASI CORS (Shopify + Render)
-// ==============================
-const allowedOrigins = [
-  "https://arkebstore.myshopify.com",
-  "https://ipaymu-shopify.onrender.com",
-];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) === -1) {
-        const msg = `Origin ${origin} tidak diizinkan oleh CORS`;
-        return callback(new Error(msg), false);
-      }
-      return callback(null, true);
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    credentials: true,
-  })
-);
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ==============================
-// ⚙️ KONFIGURASI ENVIRONMENT
-// ==============================
+// ================================
+// 🔧 KONFIGURASI ENVIRONMENT
+// ================================
 const MODE = process.env.IPAYMU_MODE || "sandbox"; // sandbox / live
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
@@ -44,6 +17,9 @@ const IPAYMU_VA = process.env.IPAYMU_VA;
 const IPAYMU_KEY = process.env.IPAYMU_KEY;
 const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
 
+// ================================
+// 🌍 IPAYMU BASE URL
+// ================================
 const IPAYMU_BASE_URL =
   MODE.toLowerCase() === "sandbox"
     ? "https://sandbox.ipaymu.com/api/v2"
@@ -52,16 +28,31 @@ const IPAYMU_BASE_URL =
 console.log(`🚀 Server running in ${MODE.toUpperCase()} MODE`);
 console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 
-// ==============================
+// ================================
+// 🌐 CORS ALLOWED DOMAINS
+// ================================
+const allowedOrigins = [
+  `https://${SHOPIFY_STORE}`,
+  "https://ipaymu-shopify.onrender.com",
+];
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+  })
+);
+
+// ================================
 // 🧩 ROUTE UTAMA TEST
-// ==============================
+// ================================
 app.get("/", (req, res) => {
   res.send(`✅ iPaymu-Server aktif di mode: ${MODE.toUpperCase()}`);
 });
 
-// ==============================
+// ================================
 // 💳 ROUTE PEMBAYARAN SHOPIFY → IPAYMU
-// ==============================
+// ================================
 app.all("/pay", async (req, res) => {
   console.log("🔥 Request masuk ke /pay:", req.method, req.query || req.body);
   try {
@@ -72,9 +63,8 @@ app.all("/pay", async (req, res) => {
       return res.status(400).send("❌ order_id atau amount tidak ditemukan");
     }
 
-    console.log("📦 order_id:", order_id, "💰 amount:", amount);
-
     const cleanAmount = Math.round(parseFloat(String(amount).replace(",", ".")));
+    console.log("📦 order_id:", order_id, "💰 amount:", cleanAmount);
 
     const body = {
       product: [`Pembayaran Order #${order_id}`],
@@ -89,13 +79,12 @@ app.all("/pay", async (req, res) => {
     };
 
     const jsonBody = JSON.stringify(body);
+    const timestamp = new Date().toISOString();
 
-    // 🔐 Signature iPaymu (versi baru)
-    const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
-    const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
+    // 🔐 Signature iPaymu (format baru sesuai dokumentasi)
     const signature = crypto
       .createHmac("sha256", IPAYMU_KEY)
-      .update(stringToSign)
+      .update(IPAYMU_VA + jsonBody + timestamp)
       .digest("hex");
 
     const response = await axios.post(`${IPAYMU_BASE_URL}/payment`, body, {
@@ -103,7 +92,7 @@ app.all("/pay", async (req, res) => {
         "Content-Type": "application/json",
         va: IPAYMU_VA,
         signature,
-        timestamp: new Date().toISOString(),
+        timestamp,
       },
     });
 
@@ -121,9 +110,9 @@ app.all("/pay", async (req, res) => {
   }
 });
 
-// ==============================
+// ================================
 // 🔁 CALLBACK DARI IPAYMU → SHOPIFY
-// ==============================
+// ================================
 app.post("/callback", async (req, res) => {
   try {
     const { reference_id, status, amount } = req.body;
@@ -132,58 +121,59 @@ app.post("/callback", async (req, res) => {
     if (status === "berhasil" || status === "success") {
       console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
 
-      // Update status order di Shopify jadi Paid
-      // ==========================
-// ✅ Update status order di Shopify (fix 400 error)
-// ==========================
-try {
-  console.log("🔎 Mencari order Shopify berdasarkan amount:", amount);
+      // Cari order Shopify berdasarkan nominal
+      const shopifyOrdersUrl = `https://${SHOPIFY_STORE}/admin/api/2024-04/orders.json?status=any&limit=50`;
+      const { data: shopifyData } = await axios.get(shopifyOrdersUrl, {
+        headers: {
+          "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+          "Content-Type": "application/json",
+        },
+      });
 
-  // Ambil semua order terbaru dari Shopify
-  const shopifyOrdersUrl = `https://${SHOPIFY_STORE}/admin/api/2024-04/orders.json?status=any&limit=50`;
-  const { data: shopifyData } = await axios.get(shopifyOrdersUrl, {
-    headers: {
-      "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-      "Content-Type": "application/json",
-    },
-  });
+      const targetOrder = shopifyData.orders.find(
+        (o) => parseInt(o.total_price) === parseInt(amount)
+      );
 
-  // Cari order yang punya total_price sama dengan nominal callback
-  const targetOrder = shopifyData.orders.find(
-    (o) => parseInt(o.total_price) === parseInt(amount)
-  );
+      if (!targetOrder) {
+        console.log("⚠ Tidak menemukan order Shopify dengan nominal:", amount);
+        return res
+          .status(200)
+          .send("Callback diterima tapi order tidak ditemukan");
+      }
 
-  if (!targetOrder) {
-    console.log("⚠ Tidak menemukan order Shopify dengan nominal:", amount);
-    return res.status(200).send("Callback diterima tapi order tidak ditemukan");
-  }
+      // Update status order Shopify jadi Paid
+      await axios.post(
+        `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${targetOrder.id}/transactions.json`,
+        {
+          transaction: {
+            kind: "sale",
+            status: "success",
+            amount: amount || "0",
+          },
+        },
+        {
+          headers: {
+            "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-  // Update order jadi 'Paid'
-  await axios.post(
-    `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${targetOrder.id}/transactions.json`,
-    {
-      transaction: {
-        kind: "sale",
-        status: "success",
-        amount: amount || "0",
-      },
-    },
-    {
-      headers: {
-        "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-        "Content-Type": "application/json",
-      },
+      console.log(`🟢 Order ${targetOrder.id} di Shopify diperbarui jadi "Paid"`);
+    } else {
+      console.log(`⚠ Pembayaran ${reference_id} belum berhasil`);
     }
-  );
 
-  console.log(`🟢 Order ${targetOrder.id} di Shopify diperbarui jadi "Paid"`);
-} catch (err) {
-  console.error("❌ Gagal update order Shopify:", err.response?.data || err.message);
-}
+    res.send("Callback diterima ✅");
+  } catch (error) {
+    console.error("❌ Gagal memproses callback:", error.message);
+    res.status(500).send("Error memproses callback");
+  }
+});
 
-// ==============================
+// ================================
 // ☕ KEEP-ALIVE UNTUK RENDER
-// ==============================
+// ================================
 setInterval(async () => {
   try {
     await axios.get(BASE_URL);
@@ -193,9 +183,9 @@ setInterval(async () => {
   }
 }, 4 * 60 * 1000);
 
-// ==============================
+// ================================
 // 🚀 JALANKAN SERVER
-// ==============================
+// ================================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`🚀 Server berjalan di port ${PORT} (${MODE.toUpperCase()} MODE)`)
