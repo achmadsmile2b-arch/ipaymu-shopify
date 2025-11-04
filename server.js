@@ -31,6 +31,9 @@ console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 const allowedOrigins = [
   `https://${SHOPIFY_STORE}`,
   "https://ipaymu-shopify.onrender.com",
+  "https://arkebstore.my.id",
+  "http://arkebstore.my.id",
+  "https://www.arkebstore.my.id",
 ];
 app.use(
   cors({
