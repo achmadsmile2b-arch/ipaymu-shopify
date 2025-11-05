@@ -11,11 +11,10 @@ app.use(express.urlencoded({ extended: true }));
 // ⚙️ KONFIGURASI ENVIRONMENT
 // ==============================
 const MODE = process.env.IPAYMU_MODE || "live"; // live / sandbox
-const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
-const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
 const IPAYMU_VA = process.env.IPAYMU_VA;
 const IPAYMU_KEY = process.env.IPAYMU_KEY;
 const BASE_URL = process.env.BASE_URL || "https://ipaymu-shopify.onrender.com";
+const STORE_URL = process.env.STORE_URL || "https://arkebstore.my.id";
 
 const IPAYMU_BASE_URL =
   MODE.toLowerCase() === "sandbox"
@@ -26,14 +25,13 @@ console.log(`🚀 Server running in ${MODE.toUpperCase()} MODE`);
 console.log(`🔗 iPaymu API: ${IPAYMU_BASE_URL}`);
 
 // ==============================
-// 🌐 CORS (IZINKAN AKSES SHOPIFY & RENDER)
+// 🌐 CORS
 // ==============================
 const allowedOrigins = [
-  `https://${SHOPIFY_STORE}`,
-  "https://ipaymu-shopify.onrender.com",
   "https://arkebstore.my.id",
   "http://arkebstore.my.id",
   "https://www.arkebstore.my.id",
+  BASE_URL,
 ];
 app.use(
   cors({
@@ -51,13 +49,14 @@ app.get("/", (req, res) => {
 });
 
 // ==============================
-// 💳 ROUTE PEMBAYARAN SHOPIFY → IPAYMU
+// 💳 ROUTE PEMBAYARAN DARI ARKEBSTORE → IPAYMU
 // ==============================
 app.all("/pay", async (req, res) => {
-  console.log("🔥 Request masuk ke /pay:", req.method, req.query || req.body);
   try {
     const data = req.method === "GET" ? req.query : req.body;
-    const { order_id, buyerName, buyerEmail, buyerPhone, buyerAddress, amount } = data;
+    const { order_id, product, amount, buyerName, buyerEmail, buyerPhone, buyerAddress } = data;
+
+    console.log("🔥 Request masuk ke /pay:", data);
 
     if (!order_id || !amount) {
       return res.status(400).send("❌ order_id atau amount tidak ditemukan");
@@ -66,21 +65,19 @@ app.all("/pay", async (req, res) => {
     const cleanAmount = Math.round(parseFloat(String(amount).replace(",", ".")));
 
     const body = {
-      product: [`Pembayaran Order #${order_id}`],
+      product: [product || `Pembayaran Order #${order_id}`],
       qty: [1],
       price: [cleanAmount],
-      buyerName: buyerName || "Pelanggan",
-      buyerEmail: buyerEmail || "example@email.com",
+      buyerName: buyerName || "Pelanggan ArkebStore",
+      buyerEmail: buyerEmail || "pelanggan@arkebstore.my.id",
       buyerPhone: buyerPhone || "08123456789",
-      buyerAddress: buyerAddress || "Alamat tidak diisi",
-      returnUrl: `https://${SHOPIFY_STORE}/`,
-      cancelUrl: `https://${SHOPIFY_STORE}/cart`,
+      buyerAddress: buyerAddress || "Alamat pelanggan ArkebStore",
+      returnUrl: `${STORE_URL}/success.html`,
+      cancelUrl: `${STORE_URL}/cancel.html`,
       notifyUrl: `${BASE_URL}/callback`,
     };
 
-    // ==============================
-    // 🔐 SIGNATURE UNTUK MODE LIVE
-    // ==============================
+    // 🔐 SIGNATURE
     const jsonBody = JSON.stringify(body);
     const bodyHash = crypto.createHash("sha256").update(jsonBody).digest("hex");
     const stringToSign = `POST:${IPAYMU_VA}:${bodyHash}:${IPAYMU_KEY}`;
@@ -116,44 +113,11 @@ app.all("/pay", async (req, res) => {
 });
 
 // ==============================
-// 🔁 CALLBACK DARI IPAYMU → SHOPIFY
+// 🔁 CALLBACK DARI IPAYMU
 // ==============================
-app.post("/callback", async (req, res) => {
-  try {
-    const { reference_id, status, amount } = req.body;
-    console.log("📩 Callback diterima dari iPaymu:", req.body);
-
-    if (status === "berhasil" || status === "success" || status === "settled") {
-      console.log(`✅ Pembayaran order ${reference_id} berhasil!`);
-
-      // Update status order di Shopify
-      await axios.post(
-        `https://${SHOPIFY_STORE}/admin/api/2024-04/orders/${reference_id}/transactions.json`,
-        {
-          transaction: {
-            kind: "sale",
-            status: "success",
-            amount: amount || "0",
-          },
-        },
-        {
-          headers: {
-            "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      console.log(`🟢 Order ${reference_id} di Shopify diperbarui jadi "Paid"`);
-    } else {
-      console.log(`⚠ Pembayaran ${reference_id} belum berhasil`);
-    }
-
-    res.send("Callback diterima ✅");
-  } catch (error) {
-    console.error("❌ Gagal memproses callback:", error.message);
-    res.status(500).send("Error memproses callback");
-  }
+app.post("/callback", (req, res) => {
+  console.log("📩 Callback diterima dari iPaymu:", req.body);
+  res.send("Callback diterima ✅");
 });
 
 // ==============================
